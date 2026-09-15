@@ -1,10 +1,10 @@
-# Standard Atlas pipeline for a generated service.
+# Continuous build for a generated service (automatic, on push to main).
 #
-# Two blocks, two policies:
-#  - Continuous build (automatic, on push to main): lint -> test -> build -> scan -> push an
-#    IMMUTABLE image tagged by commit SHA to GHCR. It does NOT deploy.
-#  - Deploy (manual, workflow_dispatch): the developer's click is the gate. It pins the image
-#    digest in atlas-gitops and Argo CD applies automatically. Pass an earlier SHA to roll back.
+# lint -> test -> build -> scan -> push an IMMUTABLE image tagged by commit SHA to GHCR.
+# It does NOT deploy: promotion to the cluster is a separate, manual step in `deploy.yml`
+# (the developer's click is the gate). Keeping build and deploy in different workflows means
+# a push never shows a confusing "skipped" deploy job, and the Deploy button is a dedicated
+# workflow the developer can find and run on demand.
 #
 # This file is generic (uses ${{ github.* }} context) and is copied verbatim into each service.
 name: ci
@@ -12,11 +12,6 @@ name: ci
 on:
   push:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      sha:
-        description: "Image SHA to deploy (leave empty for the latest build; an earlier SHA rolls back)"
-        required: false
 
 permissions:
   contents: read
@@ -24,7 +19,6 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,47 +43,3 @@ jobs:
       - name: Scan image
         run: |
           echo "TODO image scan (e.g. trivy) on ghcr.io/${{ github.repository }}:${{ github.sha }}"
-
-  deploy:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout service repo
-        uses: actions/checkout@v4
-      - name: Promote image in atlas-gitops (auto-merge) so Argo CD applies it
-        env:
-          # GITOPS_TOKEN: a token with write access to atlas-gitops (the default
-          # GITHUB_TOKEN cannot push to another repository).
-          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
-          IMAGE_SHA: ${{ github.event.inputs.sha || github.sha }}
-          SERVICE: ${{ github.event.repository.name }}
-          GITOPS_REPO: ${{ github.repository_owner }}/atlas-gitops
-        run: |
-          set -euo pipefail
-          git clone "https://x-access-token:${GITOPS_TOKEN}@github.com/${GITOPS_REPO}.git" gitops
-          DEST="gitops/apps/${SERVICE}/values.yaml"
-
-          # Guard: only PROMOTE an already-provisioned service. If the GitOps skeleton
-          # is not merged yet, fail fast instead of creating a half-deployed state.
-          if [ ! -f "$DEST" ]; then
-            echo "::error::service '${SERVICE}' is not provisioned in atlas-gitops yet — merge the provisioning PR before deploying."
-            exit 1
-          fi
-
-          # Pin the immutable image (tag = commit SHA) and propagate the dev-facing
-          # deploy/values.yaml (replicaCount + env). image.repository is kept as provisioned.
-          yq -i ".image.tag = \"${IMAGE_SHA}\"" "$DEST"
-          yq -i '.replicaCount = load("deploy/values.yaml").replicaCount' "$DEST"
-          yq -i '.env = (load("deploy/values.yaml").env // [])' "$DEST"
-
-          cd gitops
-          git config user.name  "atlas-deploy[bot]"
-          git config user.email "atlas-deploy@users.noreply.github.com"
-          git add "apps/${SERVICE}/values.yaml"
-          if git diff --cached --quiet; then
-            echo "No change — ${SERVICE} already at ${IMAGE_SHA}."
-            exit 0
-          fi
-          git commit -m "Deploy ${SERVICE} at ${IMAGE_SHA}"
-          git push origin main   # auto-merge of the bump; Argo CD (syncPolicy: automated) reconciles
-          echo "Promoted ${SERVICE}@${IMAGE_SHA} in atlas-gitops; Argo CD will reconcile."

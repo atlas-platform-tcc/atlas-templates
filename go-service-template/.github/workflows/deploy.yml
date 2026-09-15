@@ -1,0 +1,66 @@
+# Deploy (day-2) for a generated service — MANUAL, the developer's click is the gate.
+#
+# A dedicated workflow (workflow_dispatch only) so it is a first-class "Run workflow" button
+# in the Actions tab, never a job that shows up "skipped" on every push. It promotes an
+# already-built, immutable image (tag = commit SHA) by pinning it in atlas-gitops; Argo CD
+# (syncPolicy: automated) then reconciles the change. Pass an earlier SHA to roll back.
+#
+# The base version (v1) is delivered at provisioning (merge of the GitOps PR). This workflow
+# is for every release AFTER that base.
+#
+# This file is generic (uses ${{ github.* }} context) and is copied verbatim into each service.
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Image SHA to deploy (leave empty for the latest build; an earlier SHA rolls back)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout service repo
+        uses: actions/checkout@v4
+      - name: Promote image in atlas-gitops (auto-merge) so Argo CD applies it
+        env:
+          # GITOPS_TOKEN: a token with write access to atlas-gitops (the default
+          # GITHUB_TOKEN cannot push to another repository).
+          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+          IMAGE_SHA: ${{ github.event.inputs.sha || github.sha }}
+          SERVICE: ${{ github.event.repository.name }}
+          GITOPS_REPO: ${{ github.repository_owner }}/atlas-gitops
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${GITOPS_TOKEN}@github.com/${GITOPS_REPO}.git" gitops
+          DEST="gitops/apps/${SERVICE}/values.yaml"
+
+          # Guard: only PROMOTE an already-provisioned service. If the GitOps skeleton
+          # is not merged yet, fail fast instead of creating a half-deployed state.
+          if [ ! -f "$DEST" ]; then
+            echo "::error::service '${SERVICE}' is not provisioned in atlas-gitops yet — merge the provisioning PR before deploying."
+            exit 1
+          fi
+
+          # Pin the immutable image (tag = commit SHA) and propagate the dev-facing
+          # deploy/values.yaml (replicaCount + env). image.repository is kept as provisioned.
+          yq -i ".image.tag = \"${IMAGE_SHA}\"" "$DEST"
+          yq -i '.replicaCount = load("deploy/values.yaml").replicaCount' "$DEST"
+          yq -i '.env = (load("deploy/values.yaml").env // [])' "$DEST"
+
+          cd gitops
+          git config user.name  "atlas-deploy[bot]"
+          git config user.email "atlas-deploy@users.noreply.github.com"
+          git add "apps/${SERVICE}/values.yaml"
+          if git diff --cached --quiet; then
+            echo "No change — ${SERVICE} already at ${IMAGE_SHA}."
+            exit 0
+          fi
+          git commit -m "Deploy ${SERVICE} at ${IMAGE_SHA}"
+          git push origin main   # auto-merge of the bump; Argo CD (syncPolicy: automated) reconciles
+          echo "Promoted ${SERVICE}@${IMAGE_SHA} in atlas-gitops; Argo CD will reconcile."
