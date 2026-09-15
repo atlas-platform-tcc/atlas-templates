@@ -1,0 +1,35 @@
+# Platform defaults for the shared base chart. Per-service overrides (replicas, env,
+# image, service type) live in atlas-gitops and take precedence over these values.
+
+# Overridable by each service:
+image:
+  repository: hello-service
+  tag: dev
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# Environment variables injected into the container (list of {name, value}).
+# Each service sets this in its atlas-gitops values file. Empty by default.
+env: []
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Locked guardrails — present in every service, not meant to be disabled.
+containerPort: 8080
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+probes:
+  readiness:
+    path: /healthz
+  liveness:
+    path: /healthz

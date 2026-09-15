@@ -1,0 +1,15 @@
+# deploy/values.yaml
+#
+# Runtime configuration for this service — the ONLY file you edit to tune the
+# deployment. On the Deploy job, the platform propagates this file to atlas-gitops,
+# where Argo CD reconciles it into the cluster.
+#
+# Platform guardrails (probes, non-root, required labels, resource ceilings) are
+# enforced by the shared base chart and cannot be changed here.
+
+replicaCount: 2
+
+# Environment variables (list of { name, value }).
+env:
+  - name: LOG_LEVEL
+    value: "info"

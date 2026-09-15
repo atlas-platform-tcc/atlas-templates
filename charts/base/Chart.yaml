@@ -1,0 +1,6 @@
+apiVersion: v2
+name: base
+description: Shared base Helm chart for Atlas HTTP services, with mandatory guardrails (probes, resource requests/limits, labels, non-root).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
