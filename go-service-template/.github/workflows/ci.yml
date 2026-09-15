@@ -1,0 +1,64 @@
+# Standard Atlas pipeline for a generated service.
+#
+# Two blocks, two policies:
+#  - Continuous build (automatic, on push to main): lint -> test -> build -> scan -> push an
+#    IMMUTABLE image tagged by commit SHA to GHCR. It does NOT deploy.
+#  - Deploy (manual, workflow_dispatch): the developer's click is the gate. It pins the image
+#    digest in atlas-gitops and Argo CD applies automatically. Pass an earlier SHA to roll back.
+#
+# This file is generic (uses ${{ github.* }} context) and is copied verbatim into each service.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Image SHA to deploy (leave empty for the latest build; an earlier SHA rolls back)"
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./...
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push immutable image (tag = commit SHA)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+      - name: Scan image
+        run: echo "TODO: image scan (e.g. trivy) on ghcr.io/${{ github.repository }}:${{ github.sha }}"
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pin digest in atlas-gitops (auto-merge) so Argo CD applies it
+        env:
+          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+          IMAGE_SHA: ${{ github.event.inputs.sha || github.sha }}
+        run: |
+          echo "Pinning ghcr.io/${{ github.repository }}:${IMAGE_SHA} in atlas-gitops."
+          # Real implementation (phase 05): clone atlas-gitops, set image.tag in
+          # apps/<service>/values.yaml to ${IMAGE_SHA}, commit and push to main.
+          # Argo CD (syncPolicy: automated) then reconciles the new digest.
