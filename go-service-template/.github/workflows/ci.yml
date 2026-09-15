@@ -47,7 +47,8 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
       - name: Scan image
-        run: echo "TODO: image scan (e.g. trivy) on ghcr.io/${{ github.repository }}:${{ github.sha }}"
+        run: |
+          echo "TODO image scan (e.g. trivy) on ghcr.io/${{ github.repository }}:${{ github.sha }}"
 
   deploy:
     if: github.event_name == 'workflow_dispatch'
