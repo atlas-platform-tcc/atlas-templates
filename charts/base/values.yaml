@@ -6,6 +6,9 @@ image:
   repository: hello-service
   tag: dev
   pullPolicy: IfNotPresent
+  # Guardrail: name of the image pull secret (dockerconfigjson) for private GHCR
+  # images, created in the namespace by atlas-infra (Terraform). Set "" to disable.
+  pullSecret: ghcr-pull
 
 replicaCount: 2
 
