@@ -20,6 +20,25 @@ service:
   type: ClusterIP
   port: 80
 
+# HTTP exposure via Ingress (ADR atlas-templates/0006). Disabled by default; each
+# service's atlas-gitops values enable it and pin its host (e.g. <name>.127.0.0.1.nip.io),
+# so the service is reachable without port-forward once ingress-nginx is up.
+ingress:
+  enabled: false
+  className: nginx
+  host: ""
+
+# Database wiring (ADR atlas-templates/0007). When enabled, the connection is injected
+# into the container from the Secret that atlas-infra (Terraform) creates in the
+# namespace — the platform wires the connection; using it is the application's job.
+database:
+  enabled: false
+  # Host of the in-cluster PostgreSQL Service (atlas-infra names it "postgres").
+  host: postgres
+  port: 5432
+  # Secret with POSTGRES_DB/POSTGRES_USER/POSTGRES_PASSWORD (never in git).
+  secretName: postgres-credentials
+
 # Locked guardrails — present in every service, not meant to be disabled.
 containerPort: 8080
 

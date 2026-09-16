@@ -1,0 +1,4 @@
+# Go build output (binary is named after the module) and test artifacts.
+/hello-service
+*.test
+*.out

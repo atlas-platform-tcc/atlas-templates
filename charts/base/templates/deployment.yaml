@@ -29,9 +29,24 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.containerPort }}
-          {{- with .Values.env }}
+          {{- if or .Values.env .Values.database.enabled }}
           env:
+            {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.database.enabled }}
+            # Connection target injected by the platform; POSTGRES_DB/USER/PASSWORD
+            # come from the Secret via envFrom below. The app composes its own DSN.
+            - name: DB_HOST
+              value: {{ .Values.database.host | quote }}
+            - name: DB_PORT
+              value: {{ .Values.database.port | quote }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.database.enabled }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.database.secretName }}
           {{- end }}
           readinessProbe:
             httpGet:

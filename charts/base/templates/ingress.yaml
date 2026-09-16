@@ -1,0 +1,23 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "base.fullname" . }}
+  labels:
+    {{- include "base.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    # Falls back to <release>.127.0.0.1.nip.io so the chart is usable without an
+    # explicit host; atlas-gitops values normally pin it (ADR atlas-templates/0006).
+    - host: {{ .Values.ingress.host | default (printf "%s.127.0.0.1.nip.io" .Release.Name) }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "base.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}
