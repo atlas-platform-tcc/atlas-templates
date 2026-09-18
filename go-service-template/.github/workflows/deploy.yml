@@ -28,13 +28,14 @@ jobs:
       - name: Checkout service repo
         uses: actions/checkout@v4
       - name: Conformance check (day-2 gate)
-        # Evaluates the proposed change against the deploy-phase rules of the Atlas
-        # policy (ADR atlas-api/0019). Fails the deploy on 422 (e.g. a mutable/:latest
-        # image or replicas out of bounds). Skipped when ATLAS_API_URL is unset; a
-        # non-422/unreachable API does NOT block (best-effort in the MVP).
+        # Envia só {image, replicas}; a atlas-api VERIFICA os demais fatos (proteção de
+        # branch e os status de commit atlas/scan e atlas/coverage publicados pelo CI) —
+        # ADRs atlas-api/0019. Falha o deploy no 422. Com ATLAS_ENFORCE=true, também falha
+        # se a checagem não confirmar (qualquer HTTP ≠ 200, inclusive API inacessível).
         if: ${{ vars.ATLAS_API_URL != '' }}
         env:
           ATLAS_API_URL: ${{ vars.ATLAS_API_URL }}
+          ATLAS_ENFORCE: ${{ vars.ATLAS_ENFORCE }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           SERVICE: ${{ github.event.repository.name }}
@@ -43,15 +44,19 @@ jobs:
         run: |
           REPLICAS="$(yq '.replicaCount // 1' deploy/values.yaml)"
           IMAGE="ghcr.io/${OWNER}/${SERVICE}:${IMAGE_SHA}"
+          body="$(jq -nc --arg i "$IMAGE" --argjson r "${REPLICAS:-1}" '{image:$i,replicas:$r}')"
           hdrs=(-H 'content-type: application/json' -H 'X-Atlas-Actor: deploy-pipeline')
           if [ -n "${CF_ACCESS_CLIENT_ID:-}" ]; then
             hdrs+=(-H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}")
           fi
           code=$(curl -s -o /tmp/conf.json -w '%{http_code}' -X POST "${ATLAS_API_URL}/services/${SERVICE}/conformance" \
-            "${hdrs[@]}" -d "{\"image\":\"${IMAGE}\",\"replicas\":${REPLICAS}}")
+            "${hdrs[@]}" -d "$body")
           echo "conformance check → HTTP ${code}"; cat /tmp/conf.json 2>/dev/null || true; echo
           if [ "${code}" = "422" ]; then
             echo "::error::day-2 conformance gate failed — deploy refused"; exit 1
+          fi
+          if [ "${ATLAS_ENFORCE:-}" = "true" ] && [ "${code}" != "200" ]; then
+            echo "::error::ATLAS_ENFORCE: conformidade não confirmada (HTTP ${code})"; exit 1
           fi
       - name: Promote image in atlas-gitops (auto-merge) so Argo CD applies it
         env:

@@ -16,6 +16,7 @@ on:
 permissions:
   contents: read
   packages: write
+  statuses: write   # publica atlas/scan e atlas/coverage no commit (lidos pelo gate day-2)
 
 jobs:
   build:
@@ -26,7 +27,12 @@ jobs:
         with:
           go-version: "1.26"
       - run: go vet ./...
-      - run: go test ./...
+      - name: Test (com cobertura)
+        id: cover
+        run: |
+          go test ./... -coverprofile=cover.out || true
+          pct="$(go tool cover -func=cover.out 2>/dev/null | awk '/^total:/{gsub(/%/,"",$3); print int($3)}')"
+          echo "pct=${pct:-0}" >> "$GITHUB_OUTPUT"
       - run: go build ./...
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -40,6 +46,21 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
-      - name: Scan image
+      - name: Scan image (trivy, sem CRITICAL)
+        id: scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          severity: CRITICAL
+          exit-code: "1"
+      - name: Publica status de conformidade no commit (lido pela atlas-api)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "TODO image scan (e.g. trivy) on ghcr.io/${{ github.repository }}:${{ github.sha }}"
+          scan_state=success; [ "${{ steps.scan.outcome }}" = "failure" ] && scan_state=failure
+          gh api -X POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state="$scan_state" -f context="atlas/scan" -f description="trivy CRITICAL"
+          gh api -X POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state="success" -f context="atlas/coverage" -f description="${{ steps.cover.outputs.pct }}%"
