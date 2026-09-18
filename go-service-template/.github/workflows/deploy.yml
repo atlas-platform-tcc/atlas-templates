@@ -27,6 +27,32 @@ jobs:
     steps:
       - name: Checkout service repo
         uses: actions/checkout@v4
+      - name: Conformance check (day-2 gate)
+        # Evaluates the proposed change against the deploy-phase rules of the Atlas
+        # policy (ADR atlas-api/0019). Fails the deploy on 422 (e.g. a mutable/:latest
+        # image or replicas out of bounds). Skipped when ATLAS_API_URL is unset; a
+        # non-422/unreachable API does NOT block (best-effort in the MVP).
+        if: ${{ vars.ATLAS_API_URL != '' }}
+        env:
+          ATLAS_API_URL: ${{ vars.ATLAS_API_URL }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          SERVICE: ${{ github.event.repository.name }}
+          IMAGE_SHA: ${{ github.event.inputs.sha || github.sha }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          REPLICAS="$(yq '.replicaCount // 1' deploy/values.yaml)"
+          IMAGE="ghcr.io/${OWNER}/${SERVICE}:${IMAGE_SHA}"
+          hdrs=(-H 'content-type: application/json' -H 'X-Atlas-Actor: deploy-pipeline')
+          if [ -n "${CF_ACCESS_CLIENT_ID:-}" ]; then
+            hdrs+=(-H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}")
+          fi
+          code=$(curl -s -o /tmp/conf.json -w '%{http_code}' -X POST "${ATLAS_API_URL}/services/${SERVICE}/conformance" \
+            "${hdrs[@]}" -d "{\"image\":\"${IMAGE}\",\"replicas\":${REPLICAS}}")
+          echo "conformance check → HTTP ${code}"; cat /tmp/conf.json 2>/dev/null || true; echo
+          if [ "${code}" = "422" ]; then
+            echo "::error::day-2 conformance gate failed — deploy refused"; exit 1
+          fi
       - name: Promote image in atlas-gitops (auto-merge) so Argo CD applies it
         env:
           # GITOPS_TOKEN: a token with write access to atlas-gitops (the default
