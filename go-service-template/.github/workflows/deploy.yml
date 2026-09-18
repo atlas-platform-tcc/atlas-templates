@@ -64,3 +64,29 @@ jobs:
           git commit -m "Deploy ${SERVICE} at ${IMAGE_SHA}"
           git push origin main   # auto-merge of the bump; Argo CD (syncPolicy: automated) reconciles
           echo "Promoted ${SERVICE}@${IMAGE_SHA} in atlas-gitops; Argo CD will reconcile."
+
+      - name: Report deploy event to Atlas (best-effort)
+        # The Atlas API records a deploy.promoted event (ADR atlas-api/0017). This runner
+        # is cloud-hosted and cannot reach a local Atlas API, so it is a no-op unless
+        # ATLAS_API_URL (a repo variable) points to a reachable API. Never fails the deploy.
+        if: success()
+        env:
+          ATLAS_API_URL: ${{ vars.ATLAS_API_URL }}
+          # Cloudflare Access service-token headers (set as repo secrets when the API
+          # is exposed via Cloudflare Tunnel + Access). Absent → sent without them.
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          SERVICE: ${{ github.event.repository.name }}
+          IMAGE_SHA: ${{ github.event.inputs.sha || github.sha }}
+        run: |
+          if [ -z "${ATLAS_API_URL:-}" ]; then
+            echo "ATLAS_API_URL not set — skipping deploy event."
+            exit 0
+          fi
+          hdrs=(-H 'content-type: application/json' -H 'X-Atlas-Actor: deploy-pipeline')
+          if [ -n "${CF_ACCESS_CLIENT_ID:-}" ]; then
+            hdrs+=(-H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}")
+          fi
+          curl -fsS -X POST "${ATLAS_API_URL}/services/${SERVICE}/events" "${hdrs[@]}" \
+            -d "{\"type\":\"deploy.promoted\",\"detail\":\"image ${IMAGE_SHA}\"}" \
+            && echo "deploy event reported" || echo "Atlas API unreachable — deploy event skipped"
