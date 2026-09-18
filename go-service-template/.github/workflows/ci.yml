@@ -1,10 +1,9 @@
-# Continuous build for a generated service (automatic, on push to main).
+# Release build (after merge to main). Pre-merge validation lives in pr.yml.
 #
-# lint -> test -> build -> scan -> push an IMMUTABLE image tagged by commit SHA to GHCR.
-# It does NOT deploy: promotion to the cluster is a separate, manual step in `deploy.yml`
-# (the developer's click is the gate). Keeping build and deploy in different workflows means
-# a push never shows a confusing "skipped" deploy job, and the Deploy button is a dedicated
-# workflow the developer can find and run on demand.
+# lint -> test -> build -> push an IMMUTABLE image tagged by commit SHA to GHCR -> scan ->
+# publish the atlas/scan and atlas/coverage commit statuses (read by the day-2 gate).
+# It does NOT deploy: when this build succeeds, deploy.yml is triggered (workflow_run) to
+# promote — the human gate is the Pull Request merge (branch protection).
 #
 # This file is generic (uses ${{ github.* }} context) and is copied verbatim into each service.
 name: ci
@@ -16,7 +15,7 @@ on:
 permissions:
   contents: read
   packages: write
-  statuses: write   # publica atlas/scan e atlas/coverage no commit (lidos pelo gate day-2)
+  statuses: write   # publish atlas/scan and atlas/coverage on the commit (read by the day-2 gate)
 
 jobs:
   build:
@@ -27,7 +26,7 @@ jobs:
         with:
           go-version: "1.26"
       - run: go vet ./...
-      - name: Test (com cobertura)
+      - name: Test (with coverage)
         id: cover
         run: |
           go test ./... -coverprofile=cover.out || true
@@ -46,17 +45,17 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
-      - name: Scan image (trivy, sem CRITICAL)
+      - name: Scan image (trivy, no CRITICAL)
         id: scan
         continue-on-error: true
-        # @master sempre resolve; para imutabilidade, fixe uma release da página
-        # https://github.com/aquasecurity/trivy-action/releases (ex.: @0.29.0).
+        # @master always resolves; pin a release from
+        # https://github.com/aquasecurity/trivy-action/releases (e.g. @0.29.0) for immutability.
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
           severity: CRITICAL
           exit-code: "1"
-      - name: Publica status de conformidade no commit (lido pela atlas-api)
+      - name: Publish conformance statuses on the commit (read by atlas-api)
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

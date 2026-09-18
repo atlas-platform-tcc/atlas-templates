@@ -1,0 +1,36 @@
+# Pull Request validation: runs before the merge (publishes nothing).
+#
+# lint -> test -> build -> build the image (NO push) -> scan. Fails the PR on a CRITICAL
+# vulnerability or if the build/tests break. It does NOT push the image, publish release
+# statuses or deploy — that is ci.yml's responsibility (after the merge).
+#
+# This file is generic (uses ${{ github.* }} context) and is copied verbatim into each service.
+name: pr
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./...
+      - name: Build image (no push)
+        run: docker build -t "atlas-pr:${{ github.sha }}" .
+      - name: Scan image (trivy, no CRITICAL)
+        # @master always resolves; pin a release for immutability if you prefer.
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "atlas-pr:${{ github.sha }}"
+          severity: CRITICAL
+          exit-code: "1"
