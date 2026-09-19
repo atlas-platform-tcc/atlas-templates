@@ -1,7 +1,7 @@
 # Release build (after merge to main). Pre-merge validation lives in pr.yml.
 #
 # lint -> test -> build -> push an IMMUTABLE image tagged by commit SHA to GHCR -> scan ->
-# publish the atlas/scan and atlas/coverage commit statuses (read by the day-2 gate).
+# publish the atlas/scan, atlas/lint and atlas/coverage commit statuses (read by the day-2 gate).
 # It does NOT deploy: when this build succeeds, deploy.yml is triggered (workflow_run) to
 # promote — the human gate is the Pull Request merge (branch protection).
 #
@@ -26,6 +26,12 @@ jobs:
         with:
           go-version: "1.26"
       - run: go vet ./...
+      - name: Static analysis (staticcheck)
+        id: lint
+        continue-on-error: true
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          "$(go env GOPATH)/bin/staticcheck" ./...
       - name: Test (with coverage)
         id: cover
         run: |
@@ -61,7 +67,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           scan_state=success; [ "${{ steps.scan.outcome }}" = "failure" ] && scan_state=failure
+          lint_state=success; [ "${{ steps.lint.outcome }}" = "failure" ] && lint_state=failure
           gh api -X POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
             -f state="$scan_state" -f context="atlas/scan" -f description="trivy CRITICAL"
+          gh api -X POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state="$lint_state" -f context="atlas/lint" -f description="staticcheck"
           gh api -X POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
             -f state="success" -f context="atlas/coverage" -f description="${{ steps.cover.outputs.pct }}%"
