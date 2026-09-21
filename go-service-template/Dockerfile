@@ -1,6 +1,6 @@
-# Dockerfile padrão do Atlas (ADR atlas-templates/0002).
-# Build multi-estágio: compila estático em imagem oficial de Go e executa em
-# imagem base mínima e sem shell (distroless), como usuário não-root.
+# Atlas standard Dockerfile (ADR atlas-templates/0002).
+# Multi-stage build: compiles a static binary in the official Go image and runs it
+# on a minimal, shell-less base image (distroless), as a non-root user.
 
 # --- build ---
 FROM golang:1.26 AS build

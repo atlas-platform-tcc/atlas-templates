@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
   packages: write
-  statuses: write   # publish atlas/scan and atlas/coverage on the commit (read by the day-2 gate)
+  statuses: write   # publish atlas/scan, atlas/lint and atlas/coverage on the commit (read by the day-2 gate)
 
 jobs:
   build:
@@ -30,7 +30,7 @@ jobs:
         id: lint
         continue-on-error: true
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
           "$(go env GOPATH)/bin/staticcheck" ./...
       - name: Test (with coverage)
         id: cover
@@ -54,9 +54,7 @@ jobs:
       - name: Scan image (trivy, no CRITICAL)
         id: scan
         continue-on-error: true
-        # @master always resolves; pin a release from
-        # https://github.com/aquasecurity/trivy-action/releases (e.g. @0.29.0) for immutability.
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
           severity: CRITICAL
@@ -68,9 +66,13 @@ jobs:
         run: |
           scan_state=success; [ "${{ steps.scan.outcome }}" = "failure" ] && scan_state=failure
           lint_state=success; [ "${{ steps.lint.outcome }}" = "failure" ] && lint_state=failure
+          # The API reads the STATE, so the coverage guardrail must live in the state, not
+          # only the description: below the platform minimum (60%) => failure.
+          pct="${{ steps.cover.outputs.pct }}"
+          cover_state=success; [ "${pct:-0}" -lt 60 ] && cover_state=failure
           gh api -X POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
             -f state="$scan_state" -f context="atlas/scan" -f description="trivy CRITICAL"
           gh api -X POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
             -f state="$lint_state" -f context="atlas/lint" -f description="staticcheck"
           gh api -X POST "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
-            -f state="success" -f context="atlas/coverage" -f description="${{ steps.cover.outputs.pct }}%"
+            -f state="$cover_state" -f context="atlas/coverage" -f description="${pct}%"

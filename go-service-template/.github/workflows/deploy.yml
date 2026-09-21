@@ -36,7 +36,6 @@ jobs:
         # protection and the atlas/scan + atlas/coverage commit statuses published by CI) —
         # ADR atlas-api/0019. Fails the deploy on 422. With ATLAS_ENFORCE=true it also fails
         # when the check is not confirmed (any HTTP != 200, including an unreachable API).
-        if: ${{ vars.ATLAS_API_URL != '' }}
         env:
           ATLAS_API_URL: ${{ vars.ATLAS_API_URL }}
           ATLAS_ENFORCE: ${{ vars.ATLAS_ENFORCE }}
@@ -44,6 +43,12 @@ jobs:
           IMAGE_SHA: ${{ github.event.inputs.sha || github.event.workflow_run.head_sha || github.sha }}
           OWNER: ${{ github.repository_owner }}
         run: |
+          # ATLAS_API_URL is optional in the MVP. When it is unset the day-2 gate cannot
+          # run, so warn loudly instead of silently skipping — but do not fail the deploy.
+          if [ -z "${ATLAS_API_URL:-}" ]; then
+            echo "::warning::day-2 conformance gate skipped — ATLAS_API_URL is not configured"
+            exit 0
+          fi
           REPLICAS="$(yq '.replicaCount // 1' deploy/values.yaml)"
           IMAGE="ghcr.io/${OWNER}/${SERVICE}:${IMAGE_SHA}"
           body="$(jq -nc --arg i "$IMAGE" --argjson r "${REPLICAS:-1}" '{image:$i,replicas:$r}')"

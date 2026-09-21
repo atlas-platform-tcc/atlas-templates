@@ -25,15 +25,19 @@ jobs:
       - run: go vet ./...
       - name: Static analysis (staticcheck)
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
           "$(go env GOPATH)/bin/staticcheck" ./...
-      - run: go test ./...
+      - name: Test (coverage >= 60%)
+        run: |
+          go test ./... -coverprofile=cover.out
+          pct="$(go tool cover -func=cover.out | awk '/^total:/{gsub(/%/,"",$3); print int($3)}')"
+          echo "coverage ${pct}%"
+          [ "${pct:-0}" -ge 60 ] || { echo "coverage ${pct}% < 60%"; exit 1; }
       - run: go build ./...
       - name: Build image (no push)
         run: docker build -t "atlas-pr:${{ github.sha }}" .
       - name: Scan image (trivy, no CRITICAL)
-        # @master always resolves; pin a release for immutability if you prefer.
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: "atlas-pr:${{ github.sha }}"
           severity: CRITICAL

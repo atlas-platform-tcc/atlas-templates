@@ -26,6 +26,15 @@ spec:
         - name: {{ include "base.name" . }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Container hardening: drop all privileges, read-only root filesystem. The app
+          # only serves HTTP and does not write to disk; /tmp is a writable emptyDir below.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           ports:
             - name: http
               containerPort: {{ .Values.containerPort }}
@@ -63,3 +72,10 @@ spec:
             limits:
               cpu: {{ .Values.resources.limits.cpu }}
               memory: {{ .Values.resources.limits.memory }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # Writable scratch space so readOnlyRootFilesystem does not break /tmp usage.
+        - name: tmp
+          emptyDir: {}
