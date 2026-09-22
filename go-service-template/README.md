@@ -9,7 +9,24 @@ template — a plataforma exige que todo serviço nasça documentado (conformida
 - `GET /dbz` — alcançabilidade do banco, quando `database.enabled` (a plataforma injeta a conexão).
 - `GET /` — resposta de exemplo.
 
-## Como rodar localmente
+## Como rodar localmente (onboarding)
+
+Opção rápida, sem instalar Go — o ambiente de desenvolvimento como código (ADR
+atlas-templates/0008), espelhando as variáveis de runtime do cluster:
+
+```bash
+docker compose up --build      # serviço em http://localhost:8080
+```
+
+- **Sem banco:** o compose sobe apenas o serviço.
+- **Com banco** (`database.enabled`): o Atlas regenera o `docker-compose.yml` acrescentando um
+  serviço `postgres` e injetando `DB_HOST`/`DB_PORT` + `POSTGRES_*` no app, exatamente como o
+  chart base faz no Kubernetes. `GET /dbz` confirma a conexão. Copie `.env.example` para `.env`
+  para sobrescrever as credenciais locais (o `.env` é ignorado pelo Git; o segredo real do cluster
+  é criado pelo `atlas-infra` e nunca vai ao Git — ADR atlas-templates/0007).
+
+Alternativa com Go instalado:
+
 ```bash
 go run .
 # PORT=8080 por padrão; DB_HOST/DB_PORT + POSTGRES_* injetados pela plataforma quando há banco.

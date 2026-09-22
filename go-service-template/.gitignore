@@ -2,3 +2,6 @@
 /hello-service
 *.test
 *.out
+
+# Local dev overrides for docker compose — never commit credentials (.env.example is the template).
+.env
