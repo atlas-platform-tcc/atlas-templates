@@ -45,10 +45,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
       - name: Build and push immutable image (tag = commit SHA)
         uses: docker/build-push-action@v6
         with:
           context: .
+          # amd64 for cloud clusters, arm64 for kind on Apple Silicon. The Dockerfile
+          # cross-compiles, so the arm64 variant needs no emulation.
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
       - name: Scan image (trivy, no CRITICAL)
