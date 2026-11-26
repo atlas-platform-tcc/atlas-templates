@@ -37,7 +37,7 @@ jobs:
       - name: Build image (no push)
         run: docker build -t "atlas-pr:${{ github.sha }}" .
       - name: Scan image (trivy, no CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: "atlas-pr:${{ github.sha }}"
           severity: CRITICAL
